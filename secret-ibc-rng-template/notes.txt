@@ -1,0 +1,194 @@
+cd proxy
+gunzip contract.wasm
+
+export KEY=rng-test
+export WALLET=secret1lmvnhy7chy43u4gh428dfyqvjyqt5xgnc3kjdk
+secretcli tx compute store ./contract.wasm \
+    --source "https://github.com/PFC-developer/secret-examples/tree/master/secret-ibc-rng-template/proxy" \
+    --from $KEY \
+    --gas 2000000
+# ^^ this should be around 1SCRT
+tx=FB2737DB7A805D65F8166A05309B5D7811C38E0D8D022514ADD070D7BEF7AEAC
+CODE_ID=$( secretcli query tx $tx -o json  | jq -r '.logs[].events[] |select(.type=="message").attributes[]| select(.key=="code_id").value' )
+HASH=$(secretcli query compute contract-hash-by-id $CODE_ID )
+echo  $CODE_ID $HASH
+
+secretcli tx compute instantiate $CODE_ID '{ "init": {} }' \
+     --label 'PFC-IBC-rand-proxy-26-02-2023' --from $KEY \
+     --code-hash $HASH \
+     --gas 1000000
+tx_i=CFE178F10BDE03B787AEB5C2A42D65161F3FB599DB7D4AD63E452482651E30A7
+SCRT_CONTRACT=$(secretcli query tx $tx_i -o json |jq -r '.logs[].events[]| select(.type=="message").attributes[] | select(.key == "contract_address").value ')
+echo $SCRT_CONTRACT
+# pulsar-3
+#secret1nch89tk69s4stnmjn288pg2qg0v86r6mvywrvz
+
+
+# label has to be unique (secret-4)
+export SCRT_CONTRACT=secret1mtnk0rcjvcsm3qmf4569wmsw92lgz7qt8uaznt
+
+cd ../consumer_side_proxy
+
+# Terra
+export TKEY=PFC
+terrad tx wasm store ./artifacts/secret_ibc_rng_consumer_side_proxy.wasm \
+ --from $TKEY \
+ --gas 2000000 \
+ --fees  30000uluna
+
+export T_CODE=2435
+
+terrad tx wasm instantiate $T_CODE '{ }' \
+     --label 'PFC-IBC-rand-proxy-consumer-1' --from $TKEY \
+     --no-admin \
+     --fees 3000uluna
+export T_PROXY_CONTRACT=terra16qte8ftekh9au9cv28n4h42nrz26e90tjah7sntpf6s93c35x0kqrhjdtd
+
+cd ../consumer
+terrad tx wasm store ./artifacts/consumer.wasm \
+ --from $TKEY \
+ --gas 2000000 \
+ --fees  30000uluna
+
+export T_CONSUMER_CODE=2437
+
+terrad tx wasm instantiate $T_CONSUMER_CODE \
+    '{"init":{"rand_provider":{"address":"terra16qte8ftekh9au9cv28n4h42nrz26e90tjah7sntpf6s93c35x0kqrhjdtd", "code_hash": ""}}}' \
+     --from $TKEY \
+    --label 'PFC-rand-consumer-3' --from $TKEY \
+     --no-admin \
+      --gas 200000 \
+     --fees 3000uluna
+
+export T_CONTRACT=terra1kvmaxgsxuh4juem7vn7wwckszvvavtwd84p3dw9dled0pruzpd6sj6wnrr
+
+hermes create channel \
+     --a-chain phoenix-1 \
+     --a-connection connection-7 \
+     --a-port wasm.terra16qte8ftekh9au9cv28n4h42nrz26e90tjah7sntpf6s93c35x0kqrhjdtd \
+     --b-port wasm.secret1mtnk0rcjvcsm3qmf4569wmsw92lgz7qt8uaznt
+
+
+terrad tx wasm execute --from $TKEY $T_CONTRACT '{"do_something": {}}'\
+     --gas 300000 -y --fees 4500uluna
+
+terrad query wasm contract-state smart $T_CONTRACT '{"last_random": {}}'
+
+
+# MIGALOO
+export MKEY=PFC
+migalood tx wasm store ./artifacts/secret_ibc_rng_consumer_side_proxy.wasm \
+ --from $MKEY \
+ --gas 2000000 \
+ --fees  2000000uwhale
+
+export M_CODE=308
+
+migalood tx wasm instantiate $M_CODE '{ }' \
+     --label 'PFC-IBC-rand-proxy-consumer-1' --from $MKEY \
+     --no-admin \
+     --gas 300000 \
+     --fees 300000uwhale
+
+export M_PROXY_CONTRACT=migaloo127090dj7wysyg9u0mh3qm3vnpjnn5sjwdzxhjp687xp8vjlxkucqfcadqy
+
+cd ../consumer
+
+migalood tx wasm store ./artifacts/consumer.wasm \
+ --from $MKEY \
+ --gas 2000000 \
+ --fees 2000000uwhale
+
+export M_CONSUMER_CODE=309
+
+migalood tx wasm instantiate $M_CONSUMER_CODE \
+    '{"init":{"rand_provider":{"address":"migaloo127090dj7wysyg9u0mh3qm3vnpjnn5sjwdzxhjp687xp8vjlxkucqfcadqy", "code_hash": ""}}}' \
+     --from $MKEY \
+    --label 'PFC-rand-consumer-1' \
+     --no-admin \
+      --gas 200000 \
+     --fees 2000000uwhale
+
+export M_CONTRACT=migaloo19aw40u6ykqwy732k3j28ehvhvzfys98tljswftqwcdswykt5cz9ssndyu8
+
+hermes create channel \
+     --a-chain migaloo-1 \
+     --a-connection connection-9 \
+     --a-port wasm.migaloo127090dj7wysyg9u0mh3qm3vnpjnn5sjwdzxhjp687xp8vjlxkucqfcadqy \
+     --b-port wasm.secret1mtnk0rcjvcsm3qmf4569wmsw92lgz7qt8uaznt
+
+migalood tx wasm execute --from $MKEY $M_CONTRACT '{"do_something": {}}'\
+     --gas 300000 -y --fees  2000000uwhale
+
+migalood query wasm contract-state smart $M_CONTRACT '{"last_random": {}}'
+
+
+# HARPOON
+
+
+export KUJI_KEY=demo
+kujirad tx wasm store ./artifacts/secret_ibc_rng_consumer_side_proxy.wasm \
+  --from $KUJI_KEY \
+  --gas-prices 0.01ukuji \
+  --gas-adjustment 1.3 \
+  --gas auto
+
+tx_cs=CA5BC4238CAD0DFC79942D75EED595B80B21B65C2F860A7C6536F335A7AA7F68
+KUJI_CODE=$( kujirad query tx $tx_cs -o json  | jq -r '.logs[].events[] |select(.type=="store_code").attributes[]| select(.key=="code_id").value' )
+echo  $KUJI_CODE
+
+kujirad tx wasm instantiate $KUJI_CODE '{ }' \
+     --label 'PFC-IBC-rand-proxy-consumer-2024-02-26' --from $KUJI_KEY \
+     --no-admin \
+   --gas-prices 0.01ukuji \
+       --gas-adjustment 1.3 \
+       --gas auto
+
+tx_cs_i=B54B7C1C48F0A6BC912327F8A3D229035BAAF42683C3AF5D0EDB77BE0377430E
+K_PROXY_CONTRACT=$(kujirad query tx $tx_cs_i -o json  | jq -r '.logs[].events[] | select(.type=="instantiate" ).attributes[] | select(.key =="_contract_address").value  ' )
+
+echo $K_PROXY_CONTRACT
+
+cd ../consumer
+
+kujirad tx wasm store ./artifacts/consumer.wasm \
+  --from $KUJI_KEY \
+  --gas-prices 0.01ukuji \
+  --gas-adjustment 1.3 \
+  --gas auto
+
+
+tx_c=197B8A2DBBC9C5119E7E8C5F836AB5268DC98E48892B889D01FA087838343E96
+K_CONSUMER_CODE=$( kujirad query tx $tx_c -o json  | jq -r '.logs[].events[] |select(.type=="store_code").attributes[]| select(.key=="code_id").value' )
+echo  $K_CONSUMER_CODE
+
+
+kujirad tx wasm instantiate $K_CONSUMER_CODE \
+    '{"init":{"rand_provider":{"address":"kujira1vnn584sx5ve33ya5qktkedv5xtx8fg5w35rt7y3j6dvpjcm7d4rqv55nce", "code_hash": ""}}}' \
+     --from kujirad \
+    --label 'PFC-rand-consumer-2024-02-26' \
+     --no-admin \
+   --gas-prices 0.01ukuji \
+   --gas-adjustment 1.3 \
+   --gas auto
+
+tx_c_i=F85F15AF8C037DB625E0E80C99BEAFFFD2D20D0043EF5919927DBEA555D4BBA9
+K_CONTRACT=$(kujirad query tx $tx_c_i -o json  | jq -r '.logs[].events[] | select(.type=="instantiate" ).attributes[] | select(.key =="_contract_address").value  ' )
+
+echo $K_CONTRACT
+# kujira1v4pfkgk88xsq7lxnlsxdnafguqgg4s8xn58gva29zx7m22z7987qdex4m0
+
+trly transact channel kujiratestnet-secretnetworktestnet \
+  --src-port wasm.kujira1vnn584sx5ve33ya5qktkedv5xtx8fg5w35rt7y3j6dvpjcm7d4rqv55nce \
+  --dst-port wasm.secret1nch89tk69s4stnmjn288pg2qg0v86r6mvywrvz
+
+#  Successfully created new channel    {"chain_name": "kujiratestnet", "chain_id": "harpoon-4", "channel_id": "channel-49", "connection_id": "connection-44",  ││ 2024-02-26T15:55:48.920941Z    info
+# Successfully created new channel    {"chain_name": "secretnetworktestnet", "chain_id": "pulsar-3", "channel_id": "channel-45", "connection_id": "connection ││
+
+
+kujirad tx wasm execute --from $KUJI_KEY $K_CONTRACT '{"do_something": {}}'\
+  --gas-prices 0.01ukuji \
+  --gas-adjustment 1.3 \
+  --gas auto
+
+kujirad query wasm contract-state smart $K_CONTRACT '{"last_random": {}}'

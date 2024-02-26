@@ -20,7 +20,7 @@ contract.wasm*
 *.swp
 
 # env file
-.env 
+.env
 
 # mnemonic file
 .mnemonic
@@ -33,3 +33,5 @@ target/*
 consumer/target/*
 consumer-side-proxy/target/*
 proxy/target/*
+proxy/io-master-key.txt
+proxy/node-master-key.txt
